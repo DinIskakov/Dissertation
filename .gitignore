@@ -25,6 +25,8 @@ env/
 # Jupyter
 .ipynb_checkpoints/
 
+.env
+
 # Data artifacts
 *.csv
 *.json
