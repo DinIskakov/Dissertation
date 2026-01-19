@@ -1,4 +1,3 @@
-import re
 import pandas as pd
 from typing import Iterable, List
 
@@ -9,7 +8,6 @@ def filter_subject_keywords_list(
     df: pd.DataFrame,
     keywords: Iterable[str],
     text_col: str = "text",
-    keep_regex_word_boundary: bool = True,
 ) -> pd.DataFrame:
     """
     Keeps rows where any keyword appears in the text (case-insensitive).
@@ -28,12 +26,8 @@ def filter_subject_keywords_list(
     work = df.copy()
     work["_text_norm"] = work[text_col].fillna("").astype(str).map(normalize_text)
 
-    joined = "|".join(re.escape(k) for k in cleaned)
-    if keep_regex_word_boundary:
-        pattern = re.compile(rf"\b(?:{joined})\b", re.IGNORECASE)
-    else:
-        pattern = re.compile(joined, re.IGNORECASE)
-
-    mask = work["_text_norm"].str.contains(pattern, na=False)
+    mask = False
+    for kw in cleaned:
+        mask |= work["_text_norm"].str.contains(kw, case=False, na=False, regex=False)
     out = work.loc[mask].drop(columns=["_text_norm"])
     return out

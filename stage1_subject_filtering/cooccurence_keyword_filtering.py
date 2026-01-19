@@ -1,74 +1,49 @@
-from __future__ import annotations
-
-from typing import List
-import os
+from collections import Counter
 import re
 import pandas as pd
 
-from dotenv import load_dotenv
-from openai import OpenAI
-
-load_dotenv()
+from .preprocess import normalize_text
 
 
-def expand_subject_keywords_llm(
-    df: pd.DataFrame,          # kept for pipeline consistency (unused)
+def expand_subject_keywords_frequency(
+    df: pd.DataFrame,
     subject: str,
-    n_terms: int = 25,
-    model: str = "gpt-4o-mini",
-) -> List[str]:
+    top_n: int = 25,
+) -> list[str]:
     """
-    Expand a subject keyword using an LLM.
-    Returns a list of related keywords / short phrases.
+    Expand a subject keyword by counting the most common co-occurring words.
+    Returns up to top_n keywords from rows that contain the subject.
     """
     subject = (subject or "").strip()
     if not subject:
         raise ValueError("subject must be non-empty")
+    if "text" not in df.columns:
+        raise KeyError("df must contain a 'text' column")
+    if top_n <= 0:
+        raise ValueError("top_n must be > 0")
 
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise EnvironmentError("OPENAI_API_KEY not found in environment")
+    subject_norm = normalize_text(subject)
+    subject_terms = set(subject_norm.split())
 
-    client = OpenAI(api_key=api_key)
+    stopwords = {
+        "a", "an", "and", "are", "as", "at", "be", "but", "by",
+        "for", "from", "has", "he", "i", "in", "is", "it", "its",
+        "me", "my", "of", "on", "or", "our", "she", "so", "that",
+        "the", "their", "they", "this", "to", "was", "we", "were",
+        "with", "you", "your",
+    }
 
-    prompt = (
-        f"Give me {n_terms} keywords or short noun phrases related to the topic '{subject}'.\n"
-        "Rules:\n"
-        "- One term per line\n"
-        "- Lowercase\n"
-        "- Max 3 words per term\n"
-        "- No explanations\n"
-        "- No numbering or bullets\n"
-    )
+    text_norm = df["text"].fillna("").astype(str).map(normalize_text)
+    mask = text_norm.str.contains(subject_norm, case=False, na=False)
+    matched = text_norm[mask]
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": "You generate keyword lists for NLP filtering."},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.2,
-    )
+    counter: Counter[str] = Counter()
+    for text in matched:
+        for token in re.findall(r"[a-z0-9]+", text):
+            if token in subject_terms:
+                continue
+            if token in stopwords:
+                continue
+            counter[token] += 1
 
-    raw_text = response.choices[0].message.content
-
-    # Parse lines into keywords
-    terms = []
-    seen = set()
-
-    for line in raw_text.splitlines():
-        t = re.sub(r"[^a-z\s]", "", line.lower()).strip()
-        t = " ".join(t.split())
-        if not t:
-            continue
-        if t in seen:
-            continue
-        seen.add(t)
-        terms.append(t)
-
-    # Ensure subject is included
-    subj_norm = subject.lower()
-    if subj_norm not in seen:
-        terms.insert(0, subj_norm)
-
-    return terms
+    return [word for word, _ in counter.most_common(top_n)]
