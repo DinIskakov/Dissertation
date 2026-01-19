@@ -1,4 +1,4 @@
- import pandas as pd
+import pandas as pd
 
 from bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
